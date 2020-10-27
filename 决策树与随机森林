@@ -1,4 +1,3 @@
-```
 from math import log
 from collections import Counter
 import numpy as np
@@ -343,4 +342,4 @@ def random_forest(dataset,n,row):
     for inner_tree in forest:#用森林中的每一棵树进行预测
         vote_list.append(inner_predict(inner_tree,row,fea_labels))#返回预测值最多的数
     return max(vote_list,key=vote_list.count)
-```
+
