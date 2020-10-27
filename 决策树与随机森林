@@ -1,3 +1,4 @@
+#写的很复杂
 from math import log
 from collections import Counter
 import numpy as np
