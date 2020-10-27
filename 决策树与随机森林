@@ -1,0 +1,344 @@
+from math import log
+from collections import Counter
+import numpy as np
+from graphviz import Digraph
+import pandas as pd
+x=pd.read_csv(r'C:\Users\zhou\Desktop\diabetes.csv',encoding='UTF-8')
+x_array=np.array(x).tolist()
+dataset=x_array[:500]#训练集
+dataset1=x_array[500:]#测试集
+class DecisionTree(object):
+    def __init__(self,algor=None,detla=0.01,root='0'):
+        self.algor=algor
+        self.detla=detla
+        self.root=root
+    #计算熵值
+    def cal_entropy(self,labels):
+        entropy=0.0
+        dic_1={}#计算每种标签出现的此数
+        for item in labels:
+            dic_1[item]=dic_1.get(item,0)+1
+        for itemN in dic_1:#计算每个标签占的比率
+            prod=dic_1[itemN]/len(labels)#概率
+            entropy-=prod*log(prod,2)#熵值
+        return entropy
+    #计算给定特征的各种划分下的最小熵值
+    def feaX_entropy(self,dataset,i):
+        entropy=0.0
+        feaX_labels=[[x[i],x[-1]] for x in dataset]#将待选择的特征与标签选出
+        feaX=[x[i] for x in dataset]
+        def takefirst(elem):
+            return elem[0]
+        feaX_labels.sort(key=takefirst)
+        feaX.sort()
+        candidate=[]#分割值的候选处
+        labels=[]
+        labels1=[]
+        entropy_list=[]
+        for i in range(len(feaX)-1):
+            candidate.append((feaX[i]+feaX[i+1])/2)
+        for candidate_sample in candidate:#计算每个分割值对应下的熵
+            count=0
+            for feaX_labels_sample in feaX_labels:
+                if candidate_sample<=feaX_labels_sample[0] :
+                    count+=1
+                    labels.append(feaX_labels_sample[-1])
+                else:
+                    labels1.append(feaX_labels_sample[-1])
+            entropy=count/len(feaX)*self.cal_entropy(labels)+(len(feaX)-count)/len(feaX)*self.cal_entropy(labels1)
+            entropy_list.append(entropy)#收成列表
+            #返回最小熵值，索引，和分割值
+        return min(entropy_list),entropy_list.index(min(entropy_list)),candidate[entropy_list.index(min(entropy_list))]
+    def _sub_plot(self,dot,tree,inc):
+        first_label=list(tree.keys())[0]#找到迭代后的字典的keys
+        tree_next=tree[first_label]#找到keys下的分叉的标志
+        for i in tree_next.keys():
+            if isinstance(tree[first_label][i],dict):#判断分叉下的种类，如果是字典则继续迭代
+                self.root=str(int(self.root)+1)
+                dot.node(self.root,list(tree[first_label][i].keys())[0])
+                dot.edge(inc,self.root,str(i))
+                self._sub_plot(dot,tree[first_label][i],self.root)
+            if isinstance(tree[first_label][i],float):#如果是数字，则生成叶节点
+                self.root=str(int(self.root)+1)
+                dot.node(self.root,str(tree[first_label][i]))
+                dot.edge(inc,self.root,str(i))
+    #可视化函数
+    def plot_model(self,tree,name):
+        dot=Digraph(comment='good')
+        first_label=list(tree.keys())[0]#找到根节点
+        dot.node('0',first_label)
+        self._sub_plot(dot,tree,'0')
+        return dot   
+   class ID3(DecisionTree):
+    def __init__(self,algor='ID3',detla=0.05):
+        super(ID3,self).__init__()
+        self.algor=algor
+        self.detla=detla
+    def info_gain(self,dataset,i):#计算信息增益
+        labels=[x[-1] for x in dataset]
+        entropy,index,candidate_final=self.feaX_entropy(dataset,i)
+        info_gain=self.cal_entropy(labels)-entropy
+        return info_gain
+    def find_max_info_gain(self,dataset):#遍历所有特征下的信息增益，返回最大的信息增益
+        num_sample=len(dataset[0])-1
+        find_max=[]
+        for i in range(num_sample):
+            find_max.append(self.info_gain(dataset,i))
+        return find_max.index(max(find_max)),max(find_max)
+    #构建决策树函数 返回列表
+    def creatdisiontree(self,dataset,fea_labels,detle):
+        labels=[x[-1]for x in dataset]#判断标签是否一致，若一致直接返回标签值
+        if len(list(set(labels)))==1:
+            return labels[0]
+        max_entropy_index,max_info_gain=self.find_max_info_gain(dataset)
+        if max_info_gain<detle:#判断最大信息增益是否小于给定值，若小于则不再生成树
+            label_count=Counter(labels)
+            return max(label_count.items(),key=lambda x:x[1])[0]
+        else:
+            fea_dic_val={}#用于收集分支的标志和下面的节点
+            fea_dic={}#用于收集节点和分支
+            feaX_labels=[[x[max_entropy_index],x[-1]]for x in dataset]
+            feaX=[x[max_entropy_index] for x in dataset]
+            fea_labels_new=[]#产生新的特征列表
+            fea_labels_new.extend(fea_labels[:max_entropy_index]+fea_labels[max_entropy_index+1:])
+            entropy,index,candidate_final=self.feaX_entropy(dataset,max_entropy_index)
+            tem_dict={'min_than %s'% (candidate_final):[],'max_than %s'%(candidate_final):[]}
+            for sample in feaX:#利用最终选取的划分值对样本进行划分
+                if sample<=candidate_final:
+                    tem_dict['min_than %s'% (candidate_final)].append(sample)
+                if sample>candidate_final:
+                    tem_dict['max_than %s'%(candidate_final)].append(sample)
+            data_new1=[]
+            data_new2=[]
+            for item in dataset:#对样本进行划分，并除去此特征生成新的特征列表
+                if item[max_entropy_index] in tem_dict['min_than %s'% (candidate_final)]:
+                    data_new1.append(item[:max_entropy_index]+item[max_entropy_index+1:])
+                else:
+                    data_new2.append(item[:max_entropy_index]+item[max_entropy_index+1:])
+            if len(data_new1)==0:
+                label1=[y[-1]for y in data_new2]
+                label1_count=Counter(label1)
+                return max(label1_count.items(),key=lambda y:y[1])[0]
+            if len(data_new2)==0:
+                label2=[y[-1]for y in data_new1]
+                label2_count=Counter(label2)
+                return max(label2_count.items(),key=lambda y:y[1])[0]
+            if len(data_new1)!=0 and len(data_new2)!=0:#如果不是空集，对样本划分，并迭代
+                fea_dic_val['min_than %s'% (candidate_final)]=fea_dic_val.get('min_than %s'% (candidate_final),self.creatdisiontree(data_new1,fea_labels_new,detle))
+                fea_dic_val['max_than %s'%(candidate_final)]=fea_dic_val.get('max_than %s'%(candidate_final),self.creatdisiontree(data_new2,fea_labels_new,detle))
+                #生成节点和分叉
+                fea_dic[fea_labels[max_entropy_index]]=fea_dic.get(fea_labels[max_entropy_index],fea_dic_val)
+        return fea_dic
+class C45(DecisionTree):
+    def __init__(self,algor='C45',detla=0.05):
+        super(C45,self).__init__()
+        self.algor=algor
+        self.detla=detla
+    def info_gain_rate(self,dataset,i):#计算信息增益率
+        labels=[x[-1] for x in dataset]#每次迭代后数据集的标签的熵
+        entropy,index,candidate_final=self.feaX_entropy(dataset,i)
+        info_gain=self.cal_entropy(labels)-entropy
+        feature=[1,0]#因二分法，每次分类的类别数相同，不妨记作1类和0类
+        entropy_own=self.cal_entropy(feature)
+        info_gain_rate=info_gain/entropy_own
+        return info_gain_rate
+    def find_max_info_gain_rate(self,dataset):#遍历所有特征下的信息增益率，返回最大的信息增益率
+        num_sample=len(dataset[1])-1
+        find_max=[]
+        for i in range(num_sample):
+            find_max.append(self.info_gain_rate(dataset,i))
+        return find_max.index(max(find_max)),max(find_max)
+    def creatdisiontree(self,dataset,fea_labels,detle):
+        labels=[x[-1]for x in dataset]
+        if len(list(set(labels)))==1:#判断标签是否一致，若一致直接返回标签值
+            return labels[0]
+        max_entropy_index,max_info_gain_rate=self.find_max_info_gain_rate(dataset)
+        if max_info_gain_rate<detle:#判断最大信息增益率是否小于给定值，若小于则不再生成树
+            label_count=Counter(labels)
+            return max(label_count.items(),key=lambda x:x[1])[0]
+        else:
+            fea_dic_val={}#用于收集分支的标志和下面的节点
+            fea_dic={}
+            feaX_labels=[[x[max_entropy_index],x[-1]]for x in dataset]#提取数据
+            feaX=[x[max_entropy_index] for x in dataset]#提取数据
+            def takefirst(elem):
+                return elem[0]
+            feaX_labels.sort(key=takefirst)
+            feaX.sort()
+            fea_labels_new=[]#产生新的特征列表
+            fea_labels_new.extend(fea_labels[:max_entropy_index]+fea_labels[max_entropy_index+1:])
+            entropy,index,candidate_final=self.feaX_entropy(dataset,max_entropy_index)
+            tem_dict={'min_than %s'% (candidate_final):[],'max_than %s'%(candidate_final):[]}
+            for sample in feaX:
+                if sample<=candidate_final:
+                    tem_dict['min_than %s'% (candidate_final)].append(sample)
+                else:
+                    tem_dict['max_than %s'%(candidate_final)].append(sample)
+            data_new1=[]
+            data_new2=[]
+            for item in dataset:#对样本进行划分，并除去此特征生成新的特征列表
+                    if item[max_entropy_index] in tem_dict['min_than %s'% (candidate_final)]:
+                        data_new1.append(item[:max_entropy_index]+item[max_entropy_index+1:])
+                    else:
+                        data_new2.append(item[:max_entropy_index]+item[max_entropy_index+1:])
+            if len(data_new1)==0:#判断划分的新数据集是否是空集，如是空集，直接返回另一个数据集标签最多项
+                label1=[y[-1]for y in data_new2]
+                label1_count=Counter(label1)
+                return max(label1_count.items(),key=lambda y:y[1])[0]
+            if len(data_new2)==0:
+                label2=[y[-1]for y in data_new1]
+                label2_count=Counter(label2)
+                return max(label2_count.items(),key=lambda y:y[1])[0]
+            if len(data_new1)!=0 and len(data_new2)!=0:#如果不是空集，对样本划分，并迭代
+                fea_dic_val['min_than %s'% (candidate_final)]=fea_dic_val.get('min_than %s'% (candidate_final),self.creatdisiontree(data_new1,fea_labels_new,detle))
+                fea_dic_val['max_than %s'%(candidate_final)]=fea_dic_val.get('max_than %s'%(candidate_final),self.creatdisiontree(data_new2,fea_labels_new,detle))
+                #生成节点和分叉
+                fea_dic[fea_labels[max_entropy_index]]=fea_dic.get(fea_labels[max_entropy_index],fea_dic_val)
+        return fea_dic
+class CART(DecisionTree):
+    def __init__(self,algor='CART',detla=0.0706):
+        super(CART,self).__init__()
+        self.algor=algor
+        self.detla=detla
+    def cal_gini(self,labels):
+        gini=0.0
+        dic_1={}#统计每个标签出现的次数
+        for item in labels:#计算gini系数
+            dic_1[item]=dic_1.get(item,0)+1
+        for itemN in dic_1:
+            prod=dic_1[itemN]/len(labels)
+            gini+=prod*(1-prod)
+        return gini
+    def feaX_gini(self,dataset,i):
+        gini=0.0
+        feaX_labels=[[x[i],x[-1]] for x in dataset]
+        feaX=[x[i] for x in dataset]
+        def takefirst(elem):
+            return elem[0]
+        feaX_labels.sort(key=takefirst)
+        feaX.sort()
+        candidate=[]
+        labels=[]
+        labels1=[]
+        gini_list=[]
+        for i in range(len(feaX)-1):#求出所有的可能划分值
+            candidate.append((feaX[i]+feaX[i+1])/2)
+        #遍历所有的可能划分值，并求出最小gini系数下的划分值，gini系数，索引
+        for candidate_sample in candidate:
+            count=0
+            for feaX_labels_sample in feaX_labels:
+                if candidate_sample<=feaX_labels_sample[0] :
+                    count+=1
+                    labels.append(feaX_labels_sample[-1])
+                else:
+                    labels1.append(feaX_labels_sample[-1])
+            gini=count/len(feaX)*self.cal_gini(labels)+(len(feaX)-count)/len(feaX)*self.cal_gini(labels1)
+            gini_list.append(gini)
+        return min(gini_list),gini_list.index(min(gini_list)),candidate[gini_list.index(min(gini_list))]
+    def gini_down(self,dataset,i):#计算给定的特征下的gini系数与样本数据集的差值
+        labels=[x[-1] for x in dataset]
+        gini,index,candidate_final=self.feaX_gini(dataset,i)
+        gini_down=self.cal_gini(labels)-gini
+        return gini_down
+    def find_max_gini_down(self,dataset):#遍历所有特征找到最佳划分值
+        num_sample=len(dataset[1])-1
+        find_max=[]
+        for i in range(num_sample):
+            find_max.append(self.gini_down(dataset,i))
+        return find_max.index(max(find_max)),max(find_max)
+    def creatdisiontree(self,dataset,fea_labels,detle):
+        labels=[x[-1]for x in dataset]#判断迭代后的标签种类，若相同，则返回标签值
+        if len(list(set(labels)))==1:
+            return labels[0]
+        max_gini_down_index,max_gini_down=self.find_max_gini_down(dataset)
+        if max_gini_down<detle:#判断最大的下降值与给定值的比较，若小于，则停止迭代
+            label_count=Counter(labels)
+            return max(label_count.items(),key=lambda x:x[1])[0]
+        else:
+            fea_dic_val={}
+            fea_dic={}
+            feaX_labels=[[x[max_gini_down_index],x[-1]]for x in dataset]
+            feaX=[x[max_gini_down_index] for x in dataset]
+            def takefirst(elem):
+                return elem[0]
+            feaX_labels.sort(key=takefirst)
+            feaX.sort()
+            fea_labels_new=[]
+            fea_labels_new.extend(fea_labels[:max_gini_down_index]+fea_labels[max_gini_down_index+1:])
+            gini,index,candidate_final=self.feaX_gini(dataset,max_gini_down_index)
+            tem_dict={'min_than %s'% (candidate_final):[],'max_than %s'%(candidate_final):[]}
+            for sample in feaX:
+                if sample<=candidate_final:
+                    tem_dict['min_than %s'% (candidate_final)].append(sample)
+                else:
+                    tem_dict['max_than %s'%(candidate_final)].append(sample)
+            data_new1=[]
+            data_new2=[]
+            for item in dataset:#对样本进行划分，并除去此特征生成新的特征列表
+                if item[ max_gini_down_index] in tem_dict['min_than %s'% (candidate_final)]:
+                    data_new1.append(item[: max_gini_down_index]+item[ max_gini_down_index+1:])
+                else:
+                    data_new2.append(item[: max_gini_down_index]+item[ max_gini_down_index+1:])
+            if len(data_new1)==0:
+                label1=[y[-1]for y in data_new2]
+                label1_count=Counter(label1)
+                return max(label1_count.items(),key=lambda y:y[1])[0]
+            if len(data_new2)==0:
+                label2=[y[-1]for y in data_new1]
+                label2_count=Counter(label2)
+                return max(label2_count.items(),key=lambda y:y[1])[0]
+            if len(data_new1)!=0 and len(data_new2)!=0:#如果不是空集，对样本划分，并迭代
+                fea_dic_val['min_than %s'% (candidate_final)]=fea_dic_val.get('min_than %s'% (candidate_final),self.creatdisiontree(data_new1,fea_labels_new,detle))
+                fea_dic_val['max_than %s'%(candidate_final)]=fea_dic_val.get('max_than %s'%(candidate_final),self.creatdisiontree(data_new2,fea_labels_new,detle))
+                #生成节点和分叉
+                fea_dic[fea_labels[max_entropy_index]]=fea_dic.get(fea_labels[max_entropy_index],fea_dic_val)
+        return fea_dic
+
+
+
+import re
+list1=[]
+#利用生成的字典进行预测
+def inner_predict(tree,test,fea_labels):
+    if isinstance(tree,float):
+        list1.append(tree)#如果树是一个数直接返回
+    else:
+        first_label=list(tree.keys())[0]#节点
+        tree_next=tree[first_label]#节点下分叉的标志
+        index=fea_labels.index(first_label)
+        min_than,max_than=tree_next.keys()#分别是比分割值小的和大的标志
+        if isinstance(tree[first_label][min_than],float):#如果分叉下面是数直接预测
+            num=float(re.findall(r"\d+\.?\d*",min_than)[0])
+            if test[index]<=num:#确定小于分叉值
+                list1.append(tree[first_label][min_than])
+        if isinstance(tree[first_label][max_than],float):
+            num=float(re.findall(r"\d+\.?\d*",max_than)[0])
+            if test[index]>num:#确定大于分叉值
+                list1.append(tree[first_label][max_than])
+        if isinstance(tree[first_label][min_than],dict):#如果分叉下是字典直接迭代
+            inner_predict(tree[first_label][min_than],test,fea_labels)
+        if isinstance(tree[first_label][max_than],dict):
+            inner_predict(tree[first_label][max_than],test,fea_labels)
+        return list1[0]
+from random import randrange
+def random_sample1(dataset,n):
+    dataset_random_sample=[]
+    for i in range(n):
+        one_random_sample=[]
+        while len(one_random_sample)<200:#生成含有200个样本的随机数据集
+            index=randrange(len(dataset))
+            one_random_sample.append(dataset[index])
+        dataset_random_sample.append(one_random_sample)
+    return dataset_random_sample#返回n个数据集
+def random_forest(dataset,n,row):
+    fea_labels=['Pregnancies','Glucose','BloodPressure','SkinThickness','Insulin','BMI','DiabetesPedigreeFunction','Age','Outcome']
+    forest=[]
+    vote_list=[]
+    dataset_random_sample=random_sample1(dataset,n)
+    tree=ID3()
+    for random_sample in dataset_random_sample:
+        tree1=tree.creatdisiontree(random_sample,fea_labels,0.14)
+        forest.append(tree1)#将生成的树加入到森林中
+    for inner_tree in forest:#用森林中的每一棵树进行预测
+        vote_list.append(inner_predict(inner_tree,row,fea_labels))#返回预测值最多的数
+    return max(vote_list,key=vote_list.count)
